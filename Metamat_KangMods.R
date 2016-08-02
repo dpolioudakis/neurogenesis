@@ -1,3 +1,10 @@
+
+# Damon Polioudakis
+# 2016-04-21
+# Derived from Luis' script:
+#   /geschwindlabshares/atacseq/HumanEnhancers/ATAC-Seq-HiC-Overlap-Lenient/Enrichment/Metamat-CorticalLayers.R
+################################################################################
+
 rm(list=ls())
 options(stringsAsFactors=FALSE)
 setwd("/geschwindlabshares/Hi-C_Disease/Schizophrenia/geneenrichment")
