@@ -1,18 +1,21 @@
-
 # Damon Polioudakis
 # 2014-04-13
 # Plot modules defined in Kang dataset across hNP and Kang time courses
+
+## TODO
+# Add primary cells
 ################################################################################
 
 rm(list = ls())
 
-require("WGCNA")
+require(WGCNA)
 require(ggplot2)
 require(reshape2)
+require(biomaRt)
+require(gridExtra)
 
 options(stringsAsFactors = F)
 args = commandArgs(trailingOnly = T)
-
 
 ## Load data and assign variables
 
@@ -34,29 +37,69 @@ MillerMetaRAW = AllenLCM$datTraits
 Zones = read.csv("../orig.data/LCMDE/LCM_Zones_CPio.csv")
 MillerAnnotRAW = read.csv("../orig.data/LCMDE/annot.csv", row.names = 1)
 
+# Luis VZ/CP RNAseq
+vzcpExDF <- read.csv("../data/bulk_VZ_CP_from_ATAC/Exprs_HTSCexon.csv"
+                     , row.names = 1)
+metDatDF <- read.csv("../metadata/VZCP_sampleinfo.csv", header = TRUE)
+
 # hNPs
 HNPAnnot = read.csv("../orig.data/HNPData1.4.8.12/annot.csv", row.names = 1)
 HNPExpr = read.csv("../orig.data/HNPData1.4.8.12/exprdata.csv", row.names = 1)
 HNPMeta = read.csv("../orig.data/HNPData1.4.8.12/sampleinfo.csv", row.names = 1)
 
+## Variables
+graphCodeTitle <- "Kang_ModuleEG_Expression.R"
+outGraphPfx <- "../analysis/graphs/Kang_ModuleEG_Expression_"
+
+## Output Directory
+dir.create("../analysis/graphs", recursive = TRUE)
 
 ## Set ggplot2 theme
 theme_set(theme_bw())
 theme_set(theme_get() + theme(text=element_text(size=18)))
 theme_update(plot.title = element_text(size = 16))
+################################################################################
+
+### Functions
+
+## Function: Convert Ensembl IDs to Gene Symbols
+ConvertEnsemblToEntrez <- function (ensemblList) {
+  ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+  moduleGenes <- data.frame(ensemblList)
+  # bioMart manual:
+  #http://bioconductor.org/packages/release/bioc/vignettes/biomaRt/inst/doc/biomaRt.pdf
+  # Attribute: values to retrieve
+  # Filters: input query type
+  # Values: input query
+  #ensembl <- useMart("ensembl")
+  ensembl <- useMart("ENSEMBL_MART_ENSEMBL", host="www.ensembl.org")
+  ensembl <- useDataset("hsapiens_gene_ensembl", mart=ensembl)
+  # Data frame of module Ensembl IDs and gene symbols
+  ensemblGeneSymDF <- getBM(  attributes = c("ensembl_gene_id", "entrezgene")
+                              , filters = "ensembl_gene_id"
+                              , values = moduleGenes
+                              , mart = ensembl
+  )
+  ensemblGeneSymDF
+}
 
 
-## Variables
-
-graphCodeTitle <- "Kang_ModuleEG_Expression.R"
-outGraphPfx <- "../analysis/graphs/Kang_ModuleEG_Expression_"
-
-
-## Output Directory
-dir.create("../analysis/graphs", recursive = TRUE)
 ################################################################################
 
 ### Format and subset of data
+
+## Luis RNAseq VZ/CP Ensembl IDs to Entrez
+rownames(vzcpExDF) <- gsub("\\..*", "", rownames(vzcpExDF))
+ensemblEntrezDF <- ConvertEnsemblToEntrez(row.names(vzcpExDF))
+# Remove ensembl IDs not in bioMart and add Entrez
+vzcpExDF <- merge(ensemblEntrezDF, vzcpExDF
+                  , by.x = "ensembl_gene_id", by.y = "row.names")
+dim(vzcpExDF) # 53278
+# Remove genes with no Entrez ID
+vzcpExDF <- vzcpExDF[! is.na(vzcpExDF$entrezgene), ]
+dim(vzcpExDF) # 24119
+
+## Format and subset Miller
 
 ZonesMiller = MillerMetaRAW$structure_acronym
 
@@ -153,8 +196,10 @@ nrow(HNPExpr)
 ## procedures
 
 if (TRUE) {
-  ENTREZset = intersect(intersect(KangAnnotnet2$ENTREZ_ID
-                              , MillerAnnot$ENTREZ_ID), HNPAnnot$ENTREZ_GENE_ID)
+  ENTREZset = intersect(intersect(intersect(KangAnnotnet2$ENTREZ_ID
+                                  , MillerAnnot$ENTREZ_ID)
+                        , HNPAnnot$ENTREZ_GENE_ID)
+                        , vzcpExDF$entrezgene)
   
   Index = match(ENTREZset, KangAnnotnet2$ENTREZ_ID)
   KangExpr = KangExpr[Index, ]
@@ -167,11 +212,14 @@ if (TRUE) {
   Index = match(ENTREZset, HNPAnnot$ENTREZ_GENE_ID)
   HNPExpr = HNPExpr[Index, ]
   HNPAnnot = HNPAnnot[Index, ]
+  
+  Index = match(ENTREZset, vzcpExDF$entrezgene)
+  vzcpExDF = vzcpExDF[Index, ]
 }
 
-if ((nrow(HNPExpr) == nrow(KangExpr)) == (nrow(HNPExpr) == nrow(MillerExpr)))
-  cat('there are', nrow(HNPExpr), 'genes in all three datasets\n')
-# there are 16451 genes in all three datasets
+if (nrow(HNPExpr) == nrow(KangExpr) & nrow(HNPExpr) == nrow(MillerExpr) & nrow(MillerExpr) == nrow(vzcpExDF))
+  cat('there are', nrow(HNPExpr), 'genes in all datasets\n')
+# there are 16026 genes in all datasets
 ################################################################################
 
 ### Plot ME expression from Kang modules in datasets
@@ -181,6 +229,11 @@ netColors <- net2$colors[match(ENTREZset, KangAnnotnet2$ENTREZ_ID)]
 kangMEs <- moduleEigengenes(t(KangExpr), netColors)$eigengenes
 hNPMEs <- moduleEigengenes(t(HNPExpr), netColors)$eigengenes
 millerMEs <- moduleEigengenes(t(MillerExpr), netColors)$eigengenes
+luisVzcpMEs <- moduleEigengenes(t(vzcpExDF[ ,-c(1:2)]), netColors)$eigengenes
+
+################################################################################################################################################################
+##### WIP
+################################################################################################################################################################
 
 # Subset Kang metadata to Kang samples present in expression DF
 sbMetKangDF <- metKangDF[match(colnames(KangExpr), metKangDF$SampleID), ]
@@ -203,66 +256,148 @@ millerZones <- gsub(".*SZ.*", "SZ", millerZones)
 millerZones <- gsub(".*VZ.*", "VZ", millerZones)
 millerZones <- as.factor(millerZones)
 
-# Calculate mean ME expression at each time point or brain region
-Dev_Time_Point_Mean_MEexpr <- function (timePoint, MEs) {
-  df <- cbind(data.frame(Time_Point = timePoint), MEs)
-  tmpL <- split(df, df$Time_Point)
-  # Remove Time_Point column
-  tmpL <- lapply(tmpL, function(df) df[ ,-1])
-  outM <- sapply(tmpL, function(timePoint) {
-    apply(timePoint, 2, mean)
-  })
-  outM
-}
+# Luis RNAseq VZ/CP
+df <- data.frame(Zone = metDatDF$ExpCondition, luisVzcpMEs)
+df$Zone <- factor(df$Zone, levels = c("VZ", "CP"))
+luisGgDF <- melt(df, id.vars = "Zone"
+  , variable.name = "ME", value.name = "Expression")
+luisGgLDF <- split(luisGgDF, luisGgDF$ME)
+luisGGL <- lapply(names(luisGgLDF), function(name) {
+  mnGgDF <- aggregate(luisGgLDF[[name]], list(luisGgLDF[[name]]$Zone), mean)
+  mnGgDF$Zone <- mnGgDF$Group.1
+  ggplot(luisGgLDF[[name]], aes(x = Zone, y = Expression, group = 1)) +
+    geom_point(size = 0.5, alpha = 0.25) +
+    geom_point(data = mnGgDF, aes(x = Zone, y = Expression, group = 1), color = "blue") +
+    geom_line(data = mnGgDF, aes(x = Zone, y = Expression, group = 1), color = "blue") + 
+    xlab("Zone\n") +
+    ylab("") +
+    ggtitle(paste0(name, "\n"))
+})
 
 # Kang
-ggM <- Dev_Time_Point_Mean_MEexpr(kangStage, kangMEs)
-ggDF <- data.frame(t(ggM))
-ggDF$Time_Point <- row.names(ggDF)
-ggKangDF <- melt(ggDF, id.vars = "Time_Point"
-                , variable.name = "ME", value.name = "Expression")
-ggKangDF$Data_Set <- "Kang"
-
-# hNPs
-ggM <- Dev_Time_Point_Mean_MEexpr(hNPwK, hNPMEs)
-ggDF <- data.frame(t(ggM))
-ggDF$Time_Point <- row.names(ggDF)
-gghNPdF <- melt(ggDF, id.vars = "Time_Point"
-                 , variable.name = "ME", value.name = "Expression")
-gghNPdF$Data_Set <- "hNP"
+df <- data.frame(Stage = kangStage, kangMEs)
+kangGgDF <- melt(df)
+kangGgDF <- melt(df, id.vars = "Stage"
+  , variable.name = "ME", value.name = "Expression")
+kangGgLDF <- split(kangGgDF, kangGgDF$ME)
+kangGGL <- lapply(names(kangGgLDF), function(name) {
+  mnGgDF <- aggregate(kangGgLDF[[name]], list(kangGgLDF[[name]]$Stage), mean)
+  ggplot(kangGgLDF[[name]], aes(x = Stage, y = Expression, group = 1)) +
+    geom_jitter(size = 0.5, alpha = 0.25) +
+    geom_point(data = mnGgDF, aes(x = Stage, y = Expression, group = 1), color = "red") +
+    geom_line(data = mnGgDF, aes(x = Stage, y = Expression, group = 1), color = "red") + 
+    xlab("Stage\n") +
+    ylab("ME expression") +
+    ggtitle(paste0(name, "\n"))
+})
 
 # Miller
-ggM <- Dev_Time_Point_Mean_MEexpr(millerZones, millerMEs)
-ggDF <- data.frame(t(ggM))
-ggDF$Time_Point <- row.names(ggDF)
-# Convert zones to numeric for plotting on Kang time course
-ggDF$Time_Point <- as.numeric(factor(ggDF$Time_Point
-                        , levels = c("VZ", "SZ", "IZ", "SP", "CP", "MZ", "SG")))
-ggMillerdF <- melt(ggDF, id.vars = "Time_Point"
-                , variable.name = "ME", value.name = "Expression")
-ggMillerdF$Data_Set <- "Miller"
+df <- data.frame(Zone = millerZones, millerMEs)
+df$Zone <- factor(df$Zone, levels = c("VZ", "SZ", "IZ", "SP", "CP", "MZ", "SG"))
+millerGgDF <- melt(df)
+millerGgDF <- melt(df, id.vars = "Zone"
+  , variable.name = "ME", value.name = "Expression")
+millerGgLDF <- split(millerGgDF, millerGgDF$ME)
+millerGGL <- lapply(names(millerGgLDF), function(name) {
+  mnGgDF <- aggregate(millerGgLDF[[name]], list(millerGgLDF[[name]]$Zone), mean)
+  mnGgDF$Zone <- mnGgDF$Group.1
+  ggplot(millerGgLDF[[name]], aes(x = Zone, y = Expression, group = 1)) +
+    geom_jitter(size = 0.5, alpha = 0.25) +
+    geom_point(data = mnGgDF, aes(x = Zone, y = Expression, group = 1), color = "purple") +
+    geom_line(data = mnGgDF, aes(x = Zone, y = Expression, group = 1), color = "purple") + 
+    xlab("Zone\n") +
+    ylab("") +
+    ggtitle(paste0(name, "\n"))
+})
 
-# Combine for ggplot2 plotting
-ggDF <- rbind(ggKangDF, gghNPdF, ggMillerdF)
-ggDF$Time_Point <- as.numeric(ggDF$Time_Point)
+# hNPs
+df <- data.frame(Week = hNPwK, hNPMEs)
+hnpGgDF <- melt(df)
+hnpGgDF <- melt(df, id.vars = "Week"
+  , variable.name = "ME", value.name = "Expression")
+hnpGgLDF <- split(hnpGgDF, hnpGgDF$ME)
+hnpGGL <- lapply(names(hnpGgLDF), function(name) {
+  mnGgDF <- aggregate(hnpGgLDF[[name]], list(hnpGgLDF[[name]]$Week), mean)
+  mnGgDF$Week <- mnGgDF$Group.1
+  ggplot(hnpGgLDF[[name]], aes(x = Week, y = Expression, group = 1)) +
+    geom_jitter(size = 0.5, alpha = 0.25) +
+    geom_point(data = mnGgDF, aes(x = Week, y = Expression, group = 1), color = "green") +
+    geom_line(data = mnGgDF, aes(x = Week, y = Expression, group = 1), color = "green") + 
+    xlab("Week\n") +
+    ylab("") +
+    ggtitle(paste0(name, "\n"))
+})
 
-ggplot(ggDF, aes(x = Time_Point, y = Expression, color = Data_Set)) +
-  facet_wrap(~ME) +
-  geom_line() +
-  xlab("Stage / Week / Zone") +
-  ylab("ME Expression") +
-  theme(axis.text.x = element_blank()) +
-  ggtitle(paste0(graphCodeTitle
-                 ,"\nKang Module Eigengene Expression"
-                 ,"\nX-axis:"
-                 ,"\nKang: Stage 1, 2, 3, 4, 5, 6, 7, 8"
-                 ,"\nhNPs: 1, 4, 8, 12 weeks"
-                 ,"\nMiller: VZ, SZ, IZ, SP, CP, MZ, SG"
-                 ,"\n"))
-ggsave(paste0(outGraphPfx, "Line_Graphs.pdf"), width = 14, height = 12)
-######################################################################################################################################################
-# WIP HERE
-######################
+# Combine to set layout of grid.arrange
+ggLL <- mapply(list, kangGGL, luisGGL, millerGGL, hnpGGL)
+
+pdf(paste0(outGraphPfx, "Split_Line_Graphs.pdf"), height = 120, width = 12)
+do.call("grid.arrange", c(ggLL, ncol = 4))
+dev.off()
+
+
+# # Calculate mean ME expression at each time point or brain region
+# Dev_Time_Point_Mean_MEexpr <- function (timePoint, MEs) {
+#   df <- cbind(data.frame(Time_Point = timePoint), MEs)
+#   tmpL <- split(df, df$Time_Point)
+#   # Remove Time_Point column
+#   tmpL <- lapply(tmpL, function(df) df[ ,-1])
+#   outM <- sapply(tmpL, function(timePoint) {
+#     apply(timePoint, 2, mean)
+#   })
+#   outM
+# }
+# 
+# # Kang
+# ggM <- Dev_Time_Point_Mean_MEexpr(kangStage, kangMEs)
+# ggDF <- data.frame(t(ggM))
+# ggDF$Time_Point <- row.names(ggDF)
+# kangGgDF <- melt(ggDF, id.vars = "Time_Point"
+#                  , variable.name = "ME", value.name = "Expression")
+# kangGgDF$Data_Set <- "Kang"
+# 
+# # hNPs
+# ggM <- Dev_Time_Point_Mean_MEexpr(hNPwK, hNPMEs)
+# ggDF <- data.frame(t(ggM))
+# ggDF$Time_Point <- row.names(ggDF)
+# gghNPdF <- melt(ggDF, id.vars = "Time_Point"
+#                 , variable.name = "ME", value.name = "Expression")
+# gghNPdF$Data_Set <- "hNP"
+# 
+# # Miller
+# ggM <- Dev_Time_Point_Mean_MEexpr(millerZones, millerMEs)
+# ggDF <- data.frame(t(ggM))
+# ggDF$Time_Point <- row.names(ggDF)
+# # Convert zones to numeric for plotting on Kang time course
+# ggDF$Time_Point <- as.numeric(factor(ggDF$Time_Point
+#                                      , levels = c("VZ", "SZ", "IZ", "SP", "CP", "MZ", "SG")))
+# ggMillerdF <- melt(ggDF, id.vars = "Time_Point"
+#                    , variable.name = "ME", value.name = "Expression")
+# ggMillerdF$Data_Set <- "Miller"
+# 
+# # Combine for ggplot2 plotting
+# ggDF <- rbind(kangGgDF, gghNPdF, ggMillerdF)
+# ggDF$Time_Point <- as.numeric(ggDF$Time_Point)
+# 
+# ggplot(ggDF, aes(x = Time_Point, y = Expression, color = Data_Set)) +
+#   facet_wrap(~ME) +
+#   geom_line() +
+#   xlab("Stage / Week / Zone") +
+#   ylab("ME Expression") +
+#   theme(axis.text.x = element_blank()) +
+#   ggtitle(paste0(graphCodeTitle
+#                  ,"\nKang Module Eigengene Expression"
+#                  ,"\nX-axis:"
+#                  ,"\nKang: Stage 1, 2, 3, 4, 5, 6, 7, 8"
+#                  ,"\nhNPs: 1, 4, 8, 12 weeks"
+#                  ,"\nMiller: VZ, SZ, IZ, SP, CP, MZ, SG"
+#                  ,"\n"))
+# ggsave(paste0(outGraphPfx, "Line_Graphs.pdf"), width = 14, height = 12)
+################################################################################
+
+
+
+
 
 
 
@@ -368,11 +503,11 @@ plotMods = !(modColors %in% c("grey", "gold"));
 ref = 1
 test = 2
 statsObs  = cbind(mp$quality$observed[[ref]][[test]][, -1], 
-                mp$preservation$observed[[ref]][[test]][, -1])
+                  mp$preservation$observed[[ref]][[test]][, -1])
 statsZ  = cbind(mp$quality$Z[[ref]][[test]][, -1], 
-              mp$preservation$Z[[ref]][[test]][, -1]);
+                mp$preservation$Z[[ref]][[test]][, -1]);
 statslogp  = cbind(mp$quality$log.pBonf[[ref]][[test]][, -1], 
-                 mp$preservation$log.pBonf[[ref]][[test]][, -1]);
+                   mp$preservation$log.pBonf[[ref]][[test]][, -1]);
 
 print(cbind(statsObs[, c("medianRank.pres", "medianRank.qual")], 
             signif(statsZ[, c("Zsummary.pres", "Zsummary.qual")], 2), 
@@ -382,8 +517,8 @@ print(cbind(statsObs[, c("medianRank.pres", "medianRank.qual")],
 text = modColors[plotMods]
 
 refplotData = plotData = cbind(mp$preservation$observed[[ref]][[test]][, 2], 
-                             mp$preservation$Z[[ref]][[test]][, 2], 
-                             - mp$preservation$log.pBonf[[ref]][[test]][, 2])
+                               mp$preservation$Z[[ref]][[test]][, 2], 
+                               - mp$preservation$log.pBonf[[ref]][[test]][, 2])
 
 mains = c("Preservation Median rank \nKang vs Miller", 
           "Preservation Zsummary \nKang vs Miller", 
@@ -441,11 +576,11 @@ dev.off();
 ref = 1
 test = 2
 statsObs  = cbind(mpKH$quality$observed[[ref]][[test]][, -1], 
-                mpKH$preservation$observed[[ref]][[test]][, -1])
+                  mpKH$preservation$observed[[ref]][[test]][, -1])
 statsZ  = cbind(mpKH$quality$Z[[ref]][[test]][, -1], 
-              mpKH$preservation$Z[[ref]][[test]][, -1]);
+                mpKH$preservation$Z[[ref]][[test]][, -1]);
 statslogp  = cbind(mpKH$quality$log.pBonf[[ref]][[test]][, -1], 
-                 mpKH$preservation$log.pBonf[[ref]][[test]][, -1]);
+                   mpKH$preservation$log.pBonf[[ref]][[test]][, -1]);
 
 print(cbind(statsObs[, c("medianRank.pres", "medianRank.qual")], 
             signif(statsZ[, c("Zsummary.pres", "Zsummary.qual")], 2), 
@@ -524,10 +659,10 @@ dev.off();
 
 
 Prescomp  = data.frame(row.names = modColors, 
-                     KangvsMillerZ =  mp$preservation$Z[[ref]][[test]][, 2], 
-                     KangvsMillerlogp =  -mp$preservation$log.pBonf[[ref]][[test]][, 2], 
-                     KangvsHNPZ = mpKH$preservation$Z[[ref]][[test]][, 2], 
-                     KangvsHNPlogp =  -mpKH$preservation$log.pBonf[[ref]][[test]][, 2])
+                       KangvsMillerZ =  mp$preservation$Z[[ref]][[test]][, 2], 
+                       KangvsMillerlogp =  -mp$preservation$log.pBonf[[ref]][[test]][, 2], 
+                       KangvsHNPZ = mpKH$preservation$Z[[ref]][[test]][, 2], 
+                       KangvsHNPlogp =  -mpKH$preservation$log.pBonf[[ref]][[test]][, 2])
 
 Prescomp$Ratio = (Prescomp[, 1]/Prescomp[, 2])
 
@@ -535,14 +670,14 @@ write.table(Prescomp, file = "../Output/Modulepreservation/Preservationscores.cs
 
 
 MOI = modColors[which(Prescomp$KangvsMillerlogp > -log10(0.01) &
-                      Prescomp$KangvsHNPlogp < -log10(0.05))]
+                        Prescomp$KangvsHNPlogp < -log10(0.05))]
 
 MOI = MOI[!MOI%in%c("gold", "grey")]
 
 cat("modules not preserved in HNP dataset:\n", MOI, "\n")
 
 consMOI = modColors[which(Prescomp$KangvsMillerlogp > -log10(0.05)&
-                          Prescomp$KangvsHNPlogp > -log10(0.05))]
+                            Prescomp$KangvsHNPlogp > -log10(0.05))]
 
 consMOI = consMOI[!consMOI%in%c("gold", "grey")]
 cat("modules preserved in HNP dataset:\n", consMOI, "\n")
