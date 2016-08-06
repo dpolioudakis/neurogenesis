@@ -3,11 +3,6 @@
 # Run DGE for TFs identified by Andreas as enriched for targets sites in
 # neurogenesis modules from Kang data
 
-### Next:
-#     Split Luis RNAseq DGE and plotting
-#     Add SZ and SP
-#     Add hNPS and primary cells
-#     Add percent preserved genes
 ################################################################################
 
 rm(list=ls())
@@ -36,8 +31,8 @@ metDatDF <- read.csv("../metadata/VZCP_sampleinfo.csv", header = TRUE)
 load("../source/ENSEMBLhg19_UnionAnno.rda")
 
 # Out graphs
-outGraphs <- "../analysis/graphs/DGE_For_TFs_In_VZ_CP_"
-graphsTitle <- "DGE_For_TFs_In_VZ_CP.R"
+outGraphs <- "../analysis/graphs/Normalize_Luis_RNAseq_VZCP_"
+graphsTitle <- "Normalize_Luis_RNAseq_VZCP.R"
 
 ## Set ggplot2 theme
 theme_set(theme_bw())
