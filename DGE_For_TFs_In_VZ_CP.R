@@ -2,10 +2,6 @@
 # 2016-07-21
 # Run DGE for TFs identified by Andreas as enriched for targets sites in
 # neurogenesis modules from Kang data
-
-### Next:
-#     Add hNPS and primary cells
-#     Add percent preserved genes
 ################################################################################
 
 rm(list=ls())
@@ -36,12 +32,14 @@ MillerExprRAW = AllenLCM$datExpr
 MillerMetaRAW = AllenLCM$datTraits
 Zones = read.csv("../orig.data/LCMDE/LCM_Zones_CPio.csv")
 MillerAnnotRAW = read.csv("../orig.data/LCMDE/annot.csv", row.names = 1)
+# Kang
+metKangDF <- read.csv("../orig.data/InVivoData/ProcessedKangMetaData.csv")
 
 # Andreas TFs from VJs pipeline
 tfDF <- read.xlsx2("../analysis/SummaryVJRegFacEnc.xls", 2)
 
-# Gene lengths and GC content for Union Exon model
-load("../source/ENSEMBLhg19_UnionAnno.rda")
+# # Gene lengths and GC content for Union Exon model
+# load("../source/ENSEMBLhg19_UnionAnno.rda")
 
 # Out graphs
 outGraphs <- "../analysis/graphs/DGE_For_TFs_In_VZ_CP_"
@@ -85,7 +83,7 @@ DGE_Histogram_Of_FoldChange <- function (foldChange, title, outFile) {
   ggDF <- data.frame(foldChange)
   ggplot(data = ggDF, aes(ggDF[ ,1])) +
     geom_histogram(fill = 4, col = "black") +
-    xlab("Fold Change") +
+    xlab("Log2 fold change") +
     ylab("Count") +
     ggtitle(paste0(graphsTitle
                    , "\n", title
@@ -143,14 +141,17 @@ termsDF <- data.frame(metDatDF[ ,c("ExpCondition", "RIN.y", "X260.230"
 dgeLuVzcpLM <- DGE_Linear_Model(vzcpCqnDatDF, termsDF
   , "y~ExpCondition+RIN.y+X260.230+X260.280+ExtractionDate.y+Seq.PC1+Seq.PC2+Seq.PC3+Seq.PC4+Seq.PC5")
 
-# Plot histogram of Miller VZ CP fold changes
-DGE_Histogram_Of_FoldChange(dgeMlVzcpLM$coefmat[ ,2]
+# Plot histogram of Luis VZ CP fold changes
+DGE_Histogram_Of_FoldChange(dgeLuVzcpLM$coefmat[ ,2]
                             , "Fold change histogram: Luis RNAseq VZ CP"
                             , "LuisVzCp_FoldChange_Hist_CQNlenGC_Lm.pdf")
-# Plot histogram of Miller VZ CP fold changes p-values
-DGE_Histogram_Of_FoldChange_Pvals(dgeMlVzcpLM$pvalmat[ ,2]
+# Plot histogram of Luis VZ CP fold changes p-values
+DGE_Histogram_Of_FoldChange_Pvals(dgeLuVzcpLM$pvalmat[ ,2]
                                   , "Fold change p-values histogram: Miller VZ CP"
                                   , "LuisVzCp_FoldChangePval_Hist_CQNlenGC_Lm.pdf")
+
+# Save Luis DGE from linear model
+save(dgeLuVzcpLM, file = "../analysis/DGE_Luis_VzCp_FtG5P4_CQNlenGc_Lm.rdata")
 ################################################################################
 
 ### Subset Luis VZ CP RNAseq DGE to Andreas TFs
@@ -161,7 +162,7 @@ tfsEnsemblGeneDF <- ConvertEnsemblTranscriptToGeneSym(tfDF$GENENAME)
 
 ## Subset DGE by TFs
 
-table(tfsEnsemblGeneDF$ensembl_gene_id %in% gsub("\\..*", "", rownames(coefmat)))
+table(tfsEnsemblGeneDF$ensembl_gene_id %in% gsub("\\..*", "", rownames(dgeLuVzcpLM$coefmat)))
 for(mName in names(dgeLuVzcpLM)) {
   m <- dgeLuVzcpLM[[mName]]
   dgeLuVzcpLM[[mName]] <- m[match(tfsEnsemblGeneDF$ensembl_gene_id, gsub("\\..*", "", rownames(m))), 2]
@@ -178,7 +179,7 @@ DGE_Histogram_Of_FoldChange(dgeLuVzcpLM$coefmat
     , "\nCQN length GC normalized"
     , "\nLinear module terms: Brain Region, RIN, 260/230, 260/280, "
     , "\nExtraction Date, Seq PC1-5")
-  , "Expression_Hist_TFs_CQNlenGC_Lm.pdf")
+  , "LuisVzCp_FoldChange_Hist_TFs_CQNlenGC_Lm.pdf")
 
 ## Histogram of fold change p-pvalues
 
@@ -187,7 +188,7 @@ DGE_Histogram_Of_FoldChange_Pvals(dgeLuVzcpLM$pvalmat
     , "\nCQN length GC normalized"
     , "\nLinear module terms: Brain Region, RIN, 260/230, 260/280, "
     , "\nExtraction Date, Seq PC1-5")
-  , "ExpressionPval_Hist_TFs_CQNlenGC_Lm.pdf")
+  , "LuisVzCp_FoldChangePval_Hist_TFs_CQNlenGC_Lm.pdf")
 
 
 ## Make TF and log2 fold change table combining log2 fold changes, p-values
@@ -227,10 +228,6 @@ MillerMeta = MillerMetaRAW[Zoneindex, ]
 
 MillerExpr = MillerExpr[! is.na(MillerAnnotRAW$ENTREZ_ID), ]
 MillerAnnot = MillerAnnotRAW[! is.na(MillerAnnotRAW$ENTREZ_ID), ]
-
-HNPExpr = HNPExpr[! is.na(HNPAnnot$ENTREZ_GENE_ID), ]
-HNPAnnot = HNPAnnot[! is.na(HNPAnnot$ENTREZ_GENE_ID), ]
-
 
 ## Get maximum expression probe
 
@@ -319,6 +316,10 @@ DGE_Histogram_Of_FoldChange(dgeMlSvzspLM$coefmat[ ,2]
 DGE_Histogram_Of_FoldChange_Pvals(dgeMlSvzspLM$pvalmat[ ,2]
                                   , "Fold change p-values histogram: Miller SVZ SP"
                                   , "MillerSvzSp_FoldChangePval_Hist_Lm.pdf")
+
+# Save Miller DGE from linear model
+save(dgeMlVzcpLM, dgeMlSvzcpLM, dgeMlSvzspLM,
+     file = "../analysis/DGE_Miller_VzCpSvzCpSvzSp_LM.rdata")
 ################################################################################
 
 ### Subset Miller VZ SVZ CP RNAseq DGE to Andreas TFs
@@ -409,6 +410,12 @@ df <- unique(vzcpTFsDF[ ,c("GENENAME"
                            , "MILLER_SVZSP_LOG2_FC", "MILLER_SVZSP_PVAL"
                            , "module")])
 df[order(df$module), ]
+
+# Reverse fold change sign so that positive is higher expression in CP
+df$LUIS_VZCP_LOG2_FC <- -df$LUIS_VZCP_LOG2_FC
+df$MILLER_VZCP_LOG2_FC <- -df$MILLER_VZCP_LOG2_FC
+df$MILLER_SVZCP_LOG2_FC <- -df$MILLER_SVZCP_LOG2_FC
+df$MILLER_SVZSP_LOG2_FC <- -df$MILLER_SVZSP_LOG2_FC
 
 ## Heatmaps of expression for Luis VZ CP, and Miller VZ SVZ CP
 # Split by Kang module
