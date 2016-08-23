@@ -4,7 +4,9 @@
 # Plot Kang module eigengene expression in Tasic and Zhang scRNA-seq datasets
 
 ### TODO
-# Convert Tasic mouse to human orthologs
+# Add lake
+# Check Zhang mouse genes, orthologs?
+# Split Zhang oligodendrocytes into sub categories
 
 ################################################################################
 
@@ -15,6 +17,7 @@ require(ggplot2)
 require(biomaRt)
 require(reshape2)
 require(gridExtra)
+require(xlsx)
 
 options(stringsAsFactors = F)
 
@@ -56,12 +59,19 @@ colnames(zhangExDF) <- cNames[ ,1]
 colnames(zhangExDF)[1] <- "GENE_SYMBOL"
 
 # Tasic
-tasicExDF <- read.csv("../../tasic_2016/data/GSE71585_RefSeq_TPM.csv", header = TRUE)
-tasicAntDF <- read.csv("../../tasic_2016/metadata/GSE71585_Clustering_Results.csv", header = TRUE)
+tasicExDF <- read.csv("../../tasic_2016/data/GSE71585_RefSeq_TPM.csv"
+  , header = TRUE)
+tasicAntDF <- read.csv("../../tasic_2016/metadata/GSE71585_Clustering_Results.csv"
+  , header = TRUE)
+
+# Pollen
+pollenExDF <- read.csv("../../kriegstein_2015/data/mmc3.csv", row.names = 1
+  , header = TRUE)
+pollenMetDF <- read.xlsx("../../kriegstein_2015/metadata/Cell paper - updated attributes.xlsx", 1)
 
 ## Variables
 graphCodeTitle <- "Kang_ModuleEG_Expression_scRNAseq.R"
-outGraphPfx <- "../analysis/graphs/Kang_ModuleEG_Expression_scRNAseq"
+outGraphPfx <- "../analysis/graphs/Kang_ModuleEG_Expression_scRNAseq_"
 
 ## Output Directory
 dir.create("../analysis/graphs", recursive = TRUE)
@@ -75,24 +85,69 @@ theme_update(plot.title = element_text(size = 16))
 ### Functions
 
 ## Function: Convert Ensembl IDs to Gene Symbols
-ConvertEntrezToSymbol <- function (ensemblList) {
-  ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
-  moduleGenes <- data.frame(ensemblList)
+ConvertEntrezToSymbol <- function (geneList) {
   # bioMart manual:
   #http://bioconductor.org/packages/release/bioc/vignettes/biomaRt/inst/doc/biomaRt.pdf
   # Attribute: values to retrieve
   # Filters: input query type
   # Values: input query
+  geneList <- data.frame(geneList)
+  ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
   #ensembl <- useMart("ensembl")
   ensembl <- useMart("ENSEMBL_MART_ENSEMBL", host="www.ensembl.org")
   ensembl <- useDataset("hsapiens_gene_ensembl", mart=ensembl)
   # Data frame of module Ensembl IDs and gene symbols
-  ensemblGeneSymDF <- getBM(  attributes = c("hgnc_symbol", "entrezgene")
+  ensemblGeneSymDF <- getBM(
+    attributes = c("hgnc_symbol", "entrezgene")
     , filters = "entrezgene"
-    , values = moduleGenes
+    , values = geneList
     , mart = ensembl
   )
   ensemblGeneSymDF
+}
+
+## Function: Mouse gene symbols to human entrez orthologs
+ConvertMmMgiToHsEntrez <- function (geneList) {
+  # bioMart manual:
+  #http://bioconductor.org/packages/release/bioc/vignettes/biomaRt/inst/doc/biomaRt.pdf
+  # Attribute: values to retrieve
+  # Filters: input query type
+  # Values: input query
+  #mart <- useMart("ensembl")
+  geneList <- data.frame(geneList)
+  mart = useEnsembl(biomart = "ensembl", dataset = "mmusculus_gene_ensembl")
+  mart <- useMart("ENSEMBL_MART_ENSEMBL", host = "www.ensembl.org")
+  mart <- useDataset("mmusculus_gene_ensembl", mart = mart)
+  # Look up human orthologs
+  ensemblMmHsDF <- getBM(
+    attributes = c("ensembl_gene_id", "hsapiens_homolog_ensembl_gene"
+      , "hsapiens_homolog_associated_gene_name", "hsapiens_homolog_perc_id")
+    , filters = "mgi_symbol"
+    , values = geneList
+    , mart = mart
+  )
+  # Have to add MGI symbol separately, can't call BM to add both ortholog and MGI
+  # at the same time
+  ensemblMgiSymDF <- getBM(
+    attributes = c("ensembl_gene_id", "mgi_symbol")
+    , filters = "mgi_symbol"
+    , values = geneList
+    , mart = mart
+  )
+  # Convert human ensembl to entrez
+  outDF <- merge(ensemblMmHsDF, ensemblMgiSymDF, by.x = "ensembl_gene_id", "ensembl_gene_id")
+  mart = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+  mart <- useMart("ENSEMBL_MART_ENSEMBL", host="www.ensembl.org")
+  mart <- useDataset("hsapiens_gene_ensembl", mart=mart)
+  ensemblEntrezDF <- getBM(
+    attributes = c("entrezgene", "hgnc_symbol", "ensembl_gene_id")
+    , filters = "ensembl_gene_id"
+    , values = ensemblMmHsDF$hsapiens_homolog_ensembl_gene
+    , mart = mart
+  )
+  # Merge mouse gene symbols and human entrez
+  outDF <- merge(outDF, ensemblEntrezDF, by.x = "hsapiens_homolog_ensembl_gene"
+    , by.y = "ensembl_gene_id")
 }
 ################################################################################
 
@@ -117,13 +172,19 @@ zhangMEsHs <- moduleEigengenes(t(zhangExDF[ ,c(3:43)]), colorsZhang)$eigengenes
 zhangMEsMm <- moduleEigengenes(t(zhangExDF[ ,c(44:64)]), colorsZhang)$eigengenes
 
 ## Tasic MEs
-# Convert Tasic Gene Symbols to Entrez and remove duplicates
-etzGsymDF <- ConvertEntrezToSymbol(kangEtz)
-tasicExDF$gene <- toupper(tasicExDF$gene)
-tasicExDF <- merge(etzGsymDF, tasicExDF, by.x = "hgnc_symbol"
+# Convert mouse gene symbols to human entrez ortholog
+mmGsymHsEtzDF <- ConvertMmMgiToHsEntrez(toupper(tasicExDF$gene))
+tasicExDF <- merge(mmGsymHsEtzDF, tasicExDF, by.x = "mgi_symbol"
   , by.y = "gene")
+# Remove genes with no human ortholog
+tasicExDF <- tasicExDF[! is.na(tasicExDF$entrezgene), ]
+# Remove duplicate entrez
 tasicExDF <- tasicExDF[! duplicated(tasicExDF$entrezgene), ]
-# Assign module color to Zhang genes
+# Remove unnecessary ensembl and gene sym columns
+tasicExDF <- tasicExDF[ ,-c(1:5)]
+# Filter to entrez in Kang
+tasicExDF <- tasicExDF[tasicExDF$entrezgene %in% kangEtz, ]
+# Assign module color to Tasic genes
 colorsTasic <- colors[match(kangEtz, as.character(tasicExDF$entrezgene))]
 colorsTasic <- colorsTasic[complete.cases(colorsTasic)]
 # Calculate MEs
@@ -131,6 +192,18 @@ colorsTasic <- colorsTasic[complete.cases(colorsTasic)]
 keep <- tasicAntDF$broad_type[match(colnames(tasicExDF)[-c(1:2)]
   , gsub("-", "\\.", tasicAntDF$sample_title))] != "Unclassified"
 tasicMEs <- moduleEigengenes(t(tasicExDF[-c(1:2)][ ,keep]), colorsTasic)$eigengenes
+
+## Pollen MEs
+# Convert Pollen gene syms to entrez
+etzGsymDF <- ConvertEntrezToSymbol(kangEtz)
+pollenExDF <- merge(etzGsymDF, pollenExDF, by.x = "hgnc_symbol"
+  , by.y = "row.names")
+pollenExDF <- pollenExDF[! duplicated(pollenExDF$entrezgene), ]
+# Assign module color to Pollen genes
+colorsPollen <- colors[match(kangEtz, as.character(pollenExDF$entrezgene))]
+colorsPollen <- colorsPollen[complete.cases(colorsPollen)]
+# Calculate MEs
+pollenMEs <- moduleEigengenes(t(pollenExDF[ ,c(3:395)]), colorsPollen)$eigengenes
 
 
 ## Plot
@@ -147,7 +220,8 @@ zhangHsGGL <- lapply(names(ggLDF), function(name) {
   ggplot(ggLDF[[name]], aes(x = TYPE, y = Expression, group = 1)) +
     geom_jitter(size = 0.5, alpha = 0.25, width = 0.2) +
     geom_point(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "blue") +
-    geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "blue") + 
+    # geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "blue") + 
+    geom_boxplot(data = mnGgDF, aes(x = TYPE, y = Expression, group = TYPE), color = "blue") + 
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     xlab("") +
     ylab("") +
@@ -166,7 +240,8 @@ zhangMmGGL <- lapply(names(ggLDF), function(name) {
   ggplot(ggLDF[[name]], aes(x = TYPE, y = Expression, group = 1)) +
     geom_jitter(size = 0.5, alpha = 0.25, width = 0.2) +
     geom_point(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "red") +
-    geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "red") + 
+    # geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "red") +
+    geom_boxplot(data = mnGgDF, aes(x = TYPE, y = Expression, group = TYPE), color = "red") +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     xlab("") +
     ylab("") +
@@ -189,7 +264,33 @@ tasicGGL <- lapply(names(ggLDF), function(name) {
   ggplot(ggLDF[[name]], aes(x = TYPE, y = Expression, group = 1)) +
     geom_jitter(size = 0.5, alpha = 0.25, width = 0.2) +
     geom_point(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "purple") +
-    geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "purple") + 
+    # geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "purple") +
+    geom_boxplot(data = mnGgDF, aes(x = TYPE, y = Expression, group = TYPE), color = "purple") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    xlab("") +
+    ylab("") +
+    ggtitle(paste0(name, "\n"))
+})
+
+# Pollen
+type <- pollenMetDF$Inferred.Cell.Type[
+    match(colnames(pollenExDF), gsub("-", ".", pollenMetDF$Cell))][3:395]
+# Filter 2 cells that have majority of ME loading
+pollenMEs <- pollenMEs[! pollenMEs$MEmidnightblue == min(pollenMEs$MEmidnightblue), ]
+type <- type[! pollenMEs$MEmidnightblue == min(pollenMEs$MEmidnightblue)]
+df <- data.frame(TYPE = type, pollenMEs)
+ggDF <- melt(df)
+ggDF <- melt(df, id.vars = "TYPE"
+  , variable.name = "ME", value.name = "Expression")
+ggLDF <- split(ggDF, ggDF$ME)
+pollenGGL <- lapply(names(ggLDF), function(name) {
+  mnGgDF <- aggregate(ggLDF[[name]], list(ggLDF[[name]]$TYPE), mean)
+  mnGgDF$TYPE <- mnGgDF$Group.1
+  ggplot(ggLDF[[name]], aes(x = TYPE, y = Expression, group = 1)) +
+    geom_jitter(size = 0.5, alpha = 0.25, width = 0.2) +
+    geom_point(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "green") +
+    # geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "green") +
+    geom_boxplot(data = mnGgDF, aes(x = TYPE, y = Expression, group = TYPE), color = "green") +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     xlab("") +
     ylab("") +
@@ -198,8 +299,12 @@ tasicGGL <- lapply(names(ggLDF), function(name) {
 
 
 # Combine to set layout of grid.arrange
-ggLL <- mapply(list, zhangHsGGL, zhangMmGGL, tasicGGL)
+ggLL <- mapply(list, zhangHsGGL, zhangMmGGL, tasicGGL, pollenGGL)
 
-pdf(paste0(outGraphPfx, "Line_Graphs.pdf"), height = 300, width = 10)
-do.call("grid.arrange", c(ggLL, ncol = 3))
+pdf(paste0(outGraphPfx, "Boxplots.pdf"), height = 300, width = 10)
+do.call("grid.arrange", c(ggLL, ncol = 4))
+dev.off()
+
+png(paste0(outGraphPfx, "Boxplots.png"), height = 300, width = 10, units = "in", res = 200)
+do.call("grid.arrange", c(ggLL, ncol = 4))
 dev.off()
