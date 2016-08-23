@@ -4,9 +4,7 @@
 # Plot Kang module eigengene expression in Tasic and Zhang scRNA-seq datasets
 
 ### TODO
-# Add lake
-# Check Zhang mouse genes, orthologs?
-# Split Zhang oligodendrocytes into sub categories
+# Remove Pollen outliers by setting y-axis limits
 
 ################################################################################
 
@@ -30,33 +28,21 @@ rm(datExpr)
 # sampleKey is ProcessedKangMetaData.csv
 metKangDF <- sampleKey
 # metKangDF <- read.csv("../orig.data/InVivoData/ProcessedKangMetaData.csv")
-KangAnnotRAW = read.csv("../orig.data/InVivoData/annot.csv", row.names = 1)
-KangAnnotnet2 = KangAnnotRAW[which(rownames(KangAnnotRAW) %in% rownames(kangExDF)), ] 
+KangAnnotRAW <- read.csv("../orig.data/InVivoData/annot.csv", row.names = 1)
+KangAnnotnet2 <- KangAnnotRAW[which(rownames(KangAnnotRAW) %in% rownames(kangExDF)), ] 
 load("../orig.data/InVivoData/net2_power16_cutHeigt0.15.RData")
 
 # Zhang
-zhangExDF <- read.table("../../zhang_2016/data/fpkm/mmc3-3.txt", skip = 2)
-cNames <- head(read.table("../../zhang_2016/data/fpkm/mmc3-3.txt", sep = "\t", fill = TRUE), 2)
-cNames <- cNames[ ,1:63]
-cNames <- t(cNames)
-cNames[2:5,1] <- cNames[2,1]
-cNames[6:9,1] <- cNames[6,1]
-cNames[10:15,1] <- cNames[10,1]
-cNames[16:27,1] <- cNames[16,1]
-cNames[29:33,1] <- cNames[29,1]
-cNames[34:36,1] <- cNames[34,1]
-cNames[37:38,1] <- cNames[37,1]
-cNames[39:42,1] <- cNames[39,1]
-cNames[43:44,1] <- cNames[43,1]
-cNames[45:48,1] <- cNames[45,1]
-cNames[49:50,1] <- cNames[49,1]
-cNames[51:56,1] <- cNames[51,1]
-cNames[57:58,1] <- cNames[57,1]
-cNames[59:60,1] <- cNames[59,1]
-cNames[61:63,1] <- cNames[61,1]
-# colnames(zhangExDF) <- paste(cNames[ ,1], cNames[ ,2])
-colnames(zhangExDF) <- cNames[ ,1]
-colnames(zhangExDF)[1] <- "GENE_SYMBOL"
+# zhangHsExDF <- read.table("../../zhang_2016/data/fpkm/mmc3-3.txt", skip = 2)
+# zhangHsCNames <- head(read.table("../../zhang_2016/data/fpkm/mmc3-3.txt", sep = "\t", fill = TRUE), 2)
+# Human
+zhangHsExDF <- read.table("../../zhang_2016/data/fpkm/mmc3-3_Hs.txt", skip = 3)
+zhangHsCNames <- head(read.table("../../zhang_2016/data/fpkm/mmc3-3_Hs.txt"
+  , sep = "\t", fill = TRUE), 2)
+# Mouse
+zhangMmExDF <- read.table("../../zhang_2016/data/fpkm/mmc3-3_Mm.txt", skip = 2)
+zhangMmCNames <- head(read.table("../../zhang_2016/data/fpkm/mmc3-3_Mm.txt"
+  , sep = "\t", fill = TRUE), 2)
 
 # Tasic
 tasicExDF <- read.csv("../../tasic_2016/data/GSE71585_RefSeq_TPM.csv"
@@ -151,25 +137,74 @@ ConvertMmMgiToHsEntrez <- function (geneList) {
 }
 ################################################################################
 
+### Format
+# Zhang
+# Human
+zhangHsCNames <- t(zhangHsCNames)
+zhangHsCNames[2:5,1] <- zhangHsCNames[2,1]
+zhangHsCNames[6:9,1] <- zhangHsCNames[6,1]
+zhangHsCNames[10:15,1] <- zhangHsCNames[10,1]
+zhangHsCNames[16:27,1] <- zhangHsCNames[16,1]
+zhangHsCNames[29:33,1] <- zhangHsCNames[29,1]
+zhangHsCNames[34:36,1] <- zhangHsCNames[34,1]
+zhangHsCNames[37:38,1] <- zhangHsCNames[37,1]
+zhangHsCNames[39:42,1] <- zhangHsCNames[39,1]
+colnames(zhangHsExDF) <- zhangHsCNames[ ,1]
+colnames(zhangHsExDF)[1] <- "GENE_SYMBOL"
+# Mouse
+zhangMmCNames <- t(zhangMmCNames)
+zhangMmCNames[2:3,1] <- zhangMmCNames[2,1]
+zhangMmCNames[4:7,1] <- zhangMmCNames[4,1]
+zhangMmCNames[8:9,1] <- zhangMmCNames[8,1]
+zhangMmCNames[10:11,1] <- gsub(" \\d", "", zhangMmCNames[10,2])
+zhangMmCNames[12:13,1] <- gsub(" \\d", "", zhangMmCNames[12,2])
+zhangMmCNames[14:15,1] <- gsub(" \\d", "", zhangMmCNames[14,2])
+zhangMmCNames[16:17,1] <- zhangMmCNames[16,1]
+zhangMmCNames[18:19,1] <- zhangMmCNames[18,1]
+zhangMmCNames[20:22,1] <- "Mouse whole cortex"
+colnames(zhangMmExDF) <- zhangMmCNames[ ,1]
+colnames(zhangMmExDF)[1] <- "GENE_SYMBOL"
+################################################################################
+
+### Calculate MEs and plot
+
 # Subset to unique entrez Ids
 kangEtz <- KangAnnotnet2$ENTREZ_ID[! duplicated(KangAnnotnet2$ENTREZ_ID)]
 colors <- net2$colors[! duplicated(KangAnnotnet2$ENTREZ_ID)]
 
 ## Zhang MEs
+# Human
 # Convert Zhang Gene Symbols to Entrez and remove duplicates
 etzGsymDF <- ConvertEntrezToSymbol(kangEtz)
-zhangExDF$GENE_SYMBOL <- toupper(zhangExDF$GENE_SYMBOL)
-zhangExDF <- merge(etzGsymDF, zhangExDF, by.x = "hgnc_symbol"
+zhangHsExDF$GENE_SYMBOL <- toupper(zhangHsExDF$GENE_SYMBOL)
+zhangHsExDF <- merge(etzGsymDF, zhangHsExDF, by.x = "hgnc_symbol"
   , by.y = "GENE_SYMBOL")
-zhangExDF <- zhangExDF[! duplicated(zhangExDF$entrezgene), ]
+# Remove duplicate entrez
+zhangHsExDF <- zhangHsExDF[! duplicated(zhangHsExDF$entrezgene), ]
 # Assign module color to Zhang genes
-colorsZhang <- colors[match(kangEtz, as.character(zhangExDF$entrezgene))]
+colorsZhang <- colors[match(kangEtz, as.character(zhangHsExDF$entrezgene))]
 colorsZhang <- colorsZhang[complete.cases(colorsZhang)]
 # Calculate MEs
-# Human
-zhangMEsHs <- moduleEigengenes(t(zhangExDF[ ,c(3:43)]), colorsZhang)$eigengenes
+zhangMEsHs <- moduleEigengenes(t(zhangHsExDF[ ,c(3:43)]), colorsZhang)$eigengenes
+
 # Mouse
-zhangMEsMm <- moduleEigengenes(t(zhangExDF[ ,c(44:64)]), colorsZhang)$eigengenes
+# Convert mouse gene symbols to human entrez ortholog
+mmGsymHsEtzDF <- ConvertMmMgiToHsEntrez(toupper(zhangMmExDF$GENE_SYMBOL))
+zhangMmExDF <- merge(mmGsymHsEtzDF, zhangMmExDF, by.x = "mgi_symbol"
+  , by.y = "GENE_SYMBOL")
+# Remove genes with no human ortholog
+zhangMmExDF <- zhangMmExDF[! is.na(zhangMmExDF$entrezgene), ]
+# Remove duplicate entrez
+zhangMmExDF <- zhangMmExDF[! duplicated(zhangMmExDF$entrezgene), ]
+# Remove unnecessary ensembl and gene sym columns
+zhangMmExDF <- zhangMmExDF[ ,-c(1:5)]
+# Filter to entrez in Kang
+zhangMmExDF <- zhangMmExDF[zhangMmExDF$entrezgene %in% kangEtz, ]
+# Assign module color to Zhang genes
+colorsZhang <- colors[match(kangEtz, as.character(zhangMmExDF$entrezgene))]
+colorsZhang <- colorsZhang[complete.cases(colorsZhang)]
+# Calculate MEs
+zhangMEsMm <- moduleEigengenes(t(zhangMmExDF[ ,c(3:23)]), colorsZhang)$eigengenes
 
 ## Tasic MEs
 # Convert mouse gene symbols to human entrez ortholog
@@ -209,7 +244,7 @@ pollenMEs <- moduleEigengenes(t(pollenExDF[ ,c(3:395)]), colorsPollen)$eigengene
 ## Plot
 
 # Zhang Human
-df <- data.frame(TYPE = gsub(".\\d+", "", colnames(zhangExDF)[c(3:43)]), zhangMEsHs)
+df <- data.frame(TYPE = gsub(".\\d+", "", colnames(zhangHsExDF)[c(3:43)]), zhangMEsHs)
 ggDF <- melt(df)
 ggDF <- melt(df, id.vars = "TYPE"
   , variable.name = "ME", value.name = "Expression")
@@ -229,7 +264,7 @@ zhangHsGGL <- lapply(names(ggLDF), function(name) {
 })
 
 # Zhang Mouse
-df <- data.frame(TYPE = gsub(".\\d+", "", colnames(zhangExDF)[c(44:64)]), zhangMEsMm)
+df <- data.frame(TYPE = gsub(".\\d+", "", colnames(zhangMmExDF)[c(3:23)]), zhangMEsMm)
 ggDF <- melt(df)
 ggDF <- melt(df, id.vars = "TYPE"
   , variable.name = "ME", value.name = "Expression")
@@ -301,10 +336,10 @@ pollenGGL <- lapply(names(ggLDF), function(name) {
 # Combine to set layout of grid.arrange
 ggLL <- mapply(list, zhangHsGGL, zhangMmGGL, tasicGGL, pollenGGL)
 
-pdf(paste0(outGraphPfx, "Boxplots.pdf"), height = 300, width = 10)
+pdf(paste0(outGraphPfx, "Boxplots.pdf"), height = 250, width = 14)
 do.call("grid.arrange", c(ggLL, ncol = 4))
 dev.off()
 
-png(paste0(outGraphPfx, "Boxplots.png"), height = 300, width = 10, units = "in", res = 200)
+png(paste0(outGraphPfx, "Boxplots.png"), height = 250, width = 14, units = "in", res = 200)
 do.call("grid.arrange", c(ggLL, ncol = 4))
 dev.off()
