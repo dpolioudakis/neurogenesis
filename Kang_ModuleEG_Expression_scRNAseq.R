@@ -2,10 +2,6 @@
 # Damon Polioudakis
 # 2016-08-19
 # Plot Kang module eigengene expression in Tasic and Zhang scRNA-seq datasets
-
-### TODO
-# Remove Pollen outliers by setting y-axis limits
-
 ################################################################################
 
 rm(list = ls())
@@ -257,6 +253,7 @@ zhangHsGGL <- lapply(names(ggLDF), function(name) {
     geom_point(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "blue") +
     # geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "blue") + 
     geom_boxplot(data = mnGgDF, aes(x = TYPE, y = Expression, group = TYPE), color = "blue") + 
+    coord_cartesian(ylim = c(-0.05, 0.05)) +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     xlab("") +
     ylab("") +
@@ -277,6 +274,7 @@ zhangMmGGL <- lapply(names(ggLDF), function(name) {
     geom_point(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "red") +
     # geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "red") +
     geom_boxplot(data = mnGgDF, aes(x = TYPE, y = Expression, group = TYPE), color = "red") +
+    coord_cartesian(ylim = c(-0.05, 0.05)) +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     xlab("") +
     ylab("") +
@@ -301,6 +299,7 @@ tasicGGL <- lapply(names(ggLDF), function(name) {
     geom_point(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "purple") +
     # geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "purple") +
     geom_boxplot(data = mnGgDF, aes(x = TYPE, y = Expression, group = TYPE), color = "purple") +
+    coord_cartesian(ylim = c(-0.03, 0.03)) +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     xlab("") +
     ylab("") +
@@ -326,6 +325,7 @@ pollenGGL <- lapply(names(ggLDF), function(name) {
     geom_point(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "green") +
     # geom_line(data = mnGgDF, aes(x = TYPE, y = Expression, group = 1), color = "green") +
     geom_boxplot(data = mnGgDF, aes(x = TYPE, y = Expression, group = TYPE), color = "green") +
+    coord_cartesian(ylim = c(-0.01, 0.01)) +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     xlab("") +
     ylab("") +
