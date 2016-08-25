@@ -1,9 +1,7 @@
 # Damon Polioudakis
 # 2014-04-13
-# Plot modules defined in Kang dataset across hNP and Kang time courses
-
-## TODO
-# Add primary cells
+# Plot modules defined in Kang dataset across Kang, Miller, Luis VZ/CP, hNPCs,
+# and Primary cultures
 ################################################################################
 
 rm(list = ls())
@@ -38,14 +36,28 @@ Zones = read.csv("../orig.data/LCMDE/LCM_Zones_CPio.csv")
 MillerAnnotRAW = read.csv("../orig.data/LCMDE/annot.csv", row.names = 1)
 
 # Luis VZ/CP RNAseq
-vzcpExDF <- read.csv("../data/bulk_VZ_CP_from_ATAC/Exprs_HTSCexon.csv"
-                     , row.names = 1)
+# Raw HTSeq counts
+# vzcpExDF <- read.csv("../data/bulk_VZ_CP_from_ATAC/Exprs_HTSCexon.csv"
+#                      , row.names = 1)
+# CQN for GC and length + Regressed out covariates
+load("../analysis/Expression_CQN_RgCv_Luis_RNAseq_VZCP.RData")
+vzcpExDF <- vzcpNmExDF
+rm(vzcpNmExDF)
+# CQN for GC and length
+# load("../analysis/Expression_CQN_Luis_RNAseq_VZCP.RData")
+# vzcpExDF <- vzcpCqnDatDF
+# rm(vzcpCqnDatDF)
 metDatDF <- read.csv("../metadata/VZCP_sampleinfo.csv", header = TRUE)
 
 # hNPs
 HNPAnnot = read.csv("../orig.data/HNPData1.4.8.12/annot.csv", row.names = 1)
 HNPExpr = read.csv("../orig.data/HNPData1.4.8.12/exprdata.csv", row.names = 1)
 HNPMeta = read.csv("../orig.data/HNPData1.4.8.12/sampleinfo.csv", row.names = 1)
+
+# Primary cultures from human fetal VZ/CP
+prmExDF <- read.csv("../data/primaryCultures_exprdata.csv")
+prmAnnotDF <- read.csv("../metadata/primaryCultures_annot.csv")
+prmMetDF <- read.csv("../metadata/primaryCultures_metadata.csv")
 
 ## Variables
 graphCodeTitle <- "Kang_ModuleEG_Expression.R"
@@ -98,6 +110,11 @@ dim(vzcpExDF) # 53278
 # Remove genes with no Entrez ID
 vzcpExDF <- vzcpExDF[! is.na(vzcpExDF$entrezgene), ]
 dim(vzcpExDF) # 24119
+
+
+## Primary Cultures VZ/CP ILMN IDs to Entrez
+prmExDF <- merge(prmAnnotDF, prmExDF, by.x = "row.names", by.y = "row.names")
+
 
 ## Format and subset Miller
 
@@ -191,15 +208,18 @@ HNPExpr = HNPExpr[Index, ]
 nrow(HNPExpr)
 # 16679
 
-## Limit to ENTREZ IDs present in all three datasets
+## Limit to ENTREZ IDs present in all datasets
 ## Arbitrary for Module preservation analysis, but mandatory for follow up
 ## procedures
 
 if (TRUE) {
-  ENTREZset = intersect(intersect(intersect(KangAnnotnet2$ENTREZ_ID
-                                  , MillerAnnot$ENTREZ_ID)
-                        , HNPAnnot$ENTREZ_GENE_ID)
-                        , vzcpExDF$entrezgene)
+  ENTREZset = intersect(
+    intersect(
+      intersect(
+        intersect(KangAnnotnet2$ENTREZ_ID, MillerAnnot$ENTREZ_ID)
+          , HNPAnnot$ENTREZ_GENE_ID)
+        , vzcpExDF$entrezgene)
+    , prmExDF$ENTREZ_GENE_ID)
   
   Index = match(ENTREZset, KangAnnotnet2$ENTREZ_ID)
   KangExpr = KangExpr[Index, ]
@@ -215,6 +235,9 @@ if (TRUE) {
   
   Index = match(ENTREZset, vzcpExDF$entrezgene)
   vzcpExDF = vzcpExDF[Index, ]
+  
+  Index = match(ENTREZset, prmExDF$ENTREZ_GENE_ID)
+  prmExDF = prmExDF[Index, ]
 }
 
 if (nrow(HNPExpr) == nrow(KangExpr) & nrow(HNPExpr) == nrow(MillerExpr) & nrow(MillerExpr) == nrow(vzcpExDF))
@@ -230,10 +253,7 @@ kangMEs <- moduleEigengenes(t(KangExpr), netColors)$eigengenes
 hNPMEs <- moduleEigengenes(t(HNPExpr), netColors)$eigengenes
 millerMEs <- moduleEigengenes(t(MillerExpr), netColors)$eigengenes
 luisVzcpMEs <- moduleEigengenes(t(vzcpExDF[ ,-c(1:2)]), netColors)$eigengenes
-
-################################################################################################################################################################
-##### WIP
-################################################################################################################################################################
+prmMEs <- moduleEigengenes(t(prmExDF[ ,-c(1:3)]), netColors)$eigengenes
 
 # Subset Kang metadata to Kang samples present in expression DF
 sbMetKangDF <- metKangDF[match(colnames(KangExpr), metKangDF$SampleID), ]
@@ -255,6 +275,10 @@ millerZones <- gsub(".*IZ.*", "IZ", millerZones)
 millerZones <- gsub(".*SZ.*", "SZ", millerZones)
 millerZones <- gsub(".*VZ.*", "VZ", millerZones)
 millerZones <- as.factor(millerZones)
+# Primary cultures
+df <- prmMetDF[match(row.names(prmMetDF), colnames(prmExDF[ ,-(1:3)])), ]
+prmWkZoneDF <- data.frame(WEEK = gsub("^T([0-9]).*", "\\1", row.names(df), perl = TRUE))
+prmWkZoneDF$ZONE <- gsub("^T[0-9]_(.*)_.*", "\\1", row.names(df), perl = TRUE)
 
 # Luis RNAseq VZ/CP
 df <- data.frame(Zone = metDatDF$ExpCondition, luisVzcpMEs)
@@ -266,7 +290,7 @@ luisGGL <- lapply(names(luisGgLDF), function(name) {
   mnGgDF <- aggregate(luisGgLDF[[name]], list(luisGgLDF[[name]]$Zone), mean)
   mnGgDF$Zone <- mnGgDF$Group.1
   ggplot(luisGgLDF[[name]], aes(x = Zone, y = Expression, group = 1)) +
-    geom_point(size = 0.5, alpha = 0.25) +
+    geom_jitter(size = 0.5, alpha = 0.25, width = 0.2, height = 0.2) +
     geom_point(data = mnGgDF, aes(x = Zone, y = Expression, group = 1), color = "blue") +
     geom_line(data = mnGgDF, aes(x = Zone, y = Expression, group = 1), color = "blue") + 
     xlab("Zone\n") +
@@ -283,7 +307,7 @@ kangGgLDF <- split(kangGgDF, kangGgDF$ME)
 kangGGL <- lapply(names(kangGgLDF), function(name) {
   mnGgDF <- aggregate(kangGgLDF[[name]], list(kangGgLDF[[name]]$Stage), mean)
   ggplot(kangGgLDF[[name]], aes(x = Stage, y = Expression, group = 1)) +
-    geom_jitter(size = 0.5, alpha = 0.25) +
+    geom_jitter(size = 0.5, alpha = 0.25, width = 0.5, height = 0.5) +
     geom_point(data = mnGgDF, aes(x = Stage, y = Expression, group = 1), color = "red") +
     geom_line(data = mnGgDF, aes(x = Stage, y = Expression, group = 1), color = "red") + 
     xlab("Stage\n") +
@@ -302,7 +326,7 @@ millerGGL <- lapply(names(millerGgLDF), function(name) {
   mnGgDF <- aggregate(millerGgLDF[[name]], list(millerGgLDF[[name]]$Zone), mean)
   mnGgDF$Zone <- mnGgDF$Group.1
   ggplot(millerGgLDF[[name]], aes(x = Zone, y = Expression, group = 1)) +
-    geom_jitter(size = 0.5, alpha = 0.25) +
+    geom_jitter(size = 0.5, alpha = 0.25, width = 0.5, height = 0.5) +
     geom_point(data = mnGgDF, aes(x = Zone, y = Expression, group = 1), color = "purple") +
     geom_line(data = mnGgDF, aes(x = Zone, y = Expression, group = 1), color = "purple") + 
     xlab("Zone\n") +
@@ -320,7 +344,7 @@ hnpGGL <- lapply(names(hnpGgLDF), function(name) {
   mnGgDF <- aggregate(hnpGgLDF[[name]], list(hnpGgLDF[[name]]$Week), mean)
   mnGgDF$Week <- mnGgDF$Group.1
   ggplot(hnpGgLDF[[name]], aes(x = Week, y = Expression, group = 1)) +
-    geom_jitter(size = 0.5, alpha = 0.25) +
+    geom_jitter(size = 0.5, alpha = 0.25, width = 0.2, height = 0.2) +
     geom_point(data = mnGgDF, aes(x = Week, y = Expression, group = 1), color = "green") +
     geom_line(data = mnGgDF, aes(x = Week, y = Expression, group = 1), color = "green") + 
     xlab("Week\n") +
@@ -328,11 +352,28 @@ hnpGGL <- lapply(names(hnpGgLDF), function(name) {
     ggtitle(paste0(name, "\n"))
 })
 
-# Combine to set layout of grid.arrange
-ggLL <- mapply(list, kangGGL, luisGGL, millerGGL, hnpGGL)
+# Primary cultures
+df <- data.frame(WEEK = prmWkZoneDF$WEEK, ZONE = prmWkZoneDF$ZONE, prmMEs)
+ggDF <- melt(df, id.vars = c("WEEK", "ZONE")
+  , variable.name = "ME", value.name = "EXPRESSION")
+ggLDF <- split(ggDF, ggDF$ME)
+prmGGL <- lapply(names(ggLDF), function(name) {
+  mnGgDF <- aggregate(EXPRESSION ~ WEEK + ZONE, ggLDF[[name]], mean)
+  ggplot(ggLDF[[name]], aes(x = WEEK, y = EXPRESSION, color = ZONE)) +
+    geom_jitter(size = 0.5, alpha = 0.5, width = 0.2, height = 0.2) +
+    geom_point(data = mnGgDF, aes(x = WEEK, y = EXPRESSION, group = ZONE)) +
+    geom_line(data = mnGgDF, aes(x = WEEK, y = EXPRESSION, linetype = ZONE, group = ZONE)) + 
+    theme(legend.title = element_blank()) +
+    xlab("Week\n") +
+    ylab("") +
+    ggtitle(paste0(name, "\n"))
+})
 
-pdf(paste0(outGraphPfx, "Split_Line_Graphs.pdf"), height = 120, width = 12)
-do.call("grid.arrange", c(ggLL, ncol = 4))
+# Combine to set layout of grid.arrange
+ggLL <- mapply(list, kangGGL, luisGGL, millerGGL, hnpGGL, prmGGL)
+
+pdf(paste0(outGraphPfx, "Split_Line_Graphs_LuisNm.pdf"), height = 120, width = 16)
+do.call("grid.arrange", c(ggLL, ncol = 5))
 dev.off()
 
 
@@ -394,507 +435,3 @@ dev.off()
 #                  ,"\n"))
 # ggsave(paste0(outGraphPfx, "Line_Graphs.pdf"), width = 14, height = 12)
 ################################################################################
-
-
-
-
-
-
-
-
-
-
-
-######
-#Module preservation algo
-####
-
-# convert tables such as columns are genes  and colnames are ENTREZ_IDS
-
-KangExprt = t(KangExpr)
-MillerExprt = t(MillerExpr)
-HNPExprt = t(HNPExpr)
-
-
-colnames(KangExprt) = KangAnnot$ENTREZ_ID
-colnames(MillerExprt) = MillerAnnot$ENTREZ_ID
-colnames(HNPExprt) = HNPAnnot$ENTREZ_GENE_ID
-
-# Set 1 Compare Module Preservation Kang to Miller 
-
-setLabels = c("KangData", "MillerLCMDE")
-
-multiExpr = list(KangData = list(data = KangExprt), MillerLCMDE = list(data = MillerExprt)) 
-
-multiColor = list(KangData = net2$colors[match(ENTREZset, KangAnnotnet2$ENTREZ_ID)])
-
-dir.create(paste(home, args[2], "Modulepreservation", sep = "/"), showWarnings = F)
-
-setwd(paste(home, args[2], "Modulepreservation", sep = "/"))
-
-if(F){
-  system.time( {
-    mp = modulePreservation(multiExpr, multiColor, 
-                            referenceNetworks = 1, 
-                            nPermutations = 200, 
-                            randomSeed = 1, 
-                            quickCor = 0, 
-                            verbose = 3)
-  })
-  
-  #### Save the results
-  save(mp, file  = "ModulePreservation_KangvsMiller.RData");
-}
-
-# Set 2 Compare Module Preservation Kang to HNPData 
-
-
-setLabels = c("KangData", "HNPData")
-multiExpr = list(KangData = list(data = KangExprt), HNPData = list(data = HNPExprt)) 
-
-if(F){
-  system.time( {
-    mpKH = modulePreservation(multiExpr, multiColor, 
-                              referenceNetworks = 1, 
-                              nPermutations = 200, 
-                              randomSeed = 1, 
-                              quickCor = 0, 
-                              verbose = 3)
-  }
-  )
-  
-  
-  #### Save the results
-  save(mpKH, file  = "ModulePreservation_KangvsHNP.RData");
-}
-
-setwd(home)
-
-# plot the files 
-if(T){
-  load("../Output/Modulepreservation/modulePreservation_KangvsMiller.RData")
-  load("../Output/Modulepreservation/ModulePreservation_KangvsHNP.RData")
-  load("../orig.data/InVivoData/net2_power16_cutHeigt0.15.RData")
-}
-
-setwd(paste(home, args[2], "Modulepreservation", sep = "/"))
-
-
-require(WGCNA)
-
-
-
-#############################
-#
-# Plot Preservation 
-#
-#########################
-
-# which modules to plot (all but named)
-
-modColors = rownames(mp$preservation$observed[[ref]][[test]])
-moduleSizes = mp$preservation$Z[[ref]][[test]][, 1];
-
-plotMods = !(modColors %in% c("grey", "gold"));
-
-# plot Kang versus Miller
-
-
-ref = 1
-test = 2
-statsObs  = cbind(mp$quality$observed[[ref]][[test]][, -1], 
-                  mp$preservation$observed[[ref]][[test]][, -1])
-statsZ  = cbind(mp$quality$Z[[ref]][[test]][, -1], 
-                mp$preservation$Z[[ref]][[test]][, -1]);
-statslogp  = cbind(mp$quality$log.pBonf[[ref]][[test]][, -1], 
-                   mp$preservation$log.pBonf[[ref]][[test]][, -1]);
-
-print(cbind(statsObs[, c("medianRank.pres", "medianRank.qual")], 
-            signif(statsZ[, c("Zsummary.pres", "Zsummary.qual")], 2), 
-            signif(statslogp[, c("log.p.Bonfsummary.pres", "log.p.Bonfsummary.qual")], 3)))
-
-
-text = modColors[plotMods]
-
-refplotData = plotData = cbind(mp$preservation$observed[[ref]][[test]][, 2], 
-                               mp$preservation$Z[[ref]][[test]][, 2], 
-                               - mp$preservation$log.pBonf[[ref]][[test]][, 2])
-
-mains = c("Preservation Median rank \nKang vs Miller", 
-          "Preservation Zsummary \nKang vs Miller", 
-          "Preservation -log10 Bonfp.val \nKang vs Miller")
-
-pdf(file = "KangvsMiller-modulePreservation-Zsummary-medianRank.pdf", wi = 15, h = 5)
-
-
-par(mfrow = c(1, 3))
-par(mar = c(4.5, 6, 2.5, 1))
-for (p in 1:3)
-{min = min(refplotData[plotMods, p], na.rm = TRUE);
-max = max(refplotData[plotMods, p], na.rm = TRUE);
-# Adjust ploting ranges appropriately
-if (p == 2 | p == 3)
-{
-  if (min > -max/10) min = -max/10
-  ylim = c(min - 0.1 * (max-min), max + 0.1 * (max-min))
-}
-else
-  ylim = c(max + 0.1 * (max-min), min - 0.1 * (max-min))
-
-plot(moduleSizes[plotMods], plotData[plotMods, p], col = 1, bg = modColors[plotMods], pch = 21, 
-     main = mains[p], 
-     cex = 2.4, 
-     ylab = mains[p], xlab = "Module size", log = "x", 
-     ylim = ylim, 
-     xlim = c(10, 2000), cex.lab = 1.2, cex.axis = 1.2, cex.main  = 1.4)
-
-labelPoints(moduleSizes[plotMods], plotData[plotMods, p], text, cex = 0.7, offs = 0.08)
-
-# For Zsummary, add threshold lines
-if (p == 2)
-{
-  abline(h = 0)
-  abline(h = 2, col = "blue", lty = 2)
-  abline(h = 10, col = "darkgreen", lty = 2)
-}
-
-if (p == 3)
-{
-  abline(h = 0, col = 1)
-  abline(h = -log10(0.05), col = "blue", lty = 2)
-  abline(h = -log10(0.01), col = "darkgreen", lty = 2)
-}
-}
-# If plotting into a file, close it
-dev.off();
-
-
-
-# plot Kang versus HNP
-
-
-ref = 1
-test = 2
-statsObs  = cbind(mpKH$quality$observed[[ref]][[test]][, -1], 
-                  mpKH$preservation$observed[[ref]][[test]][, -1])
-statsZ  = cbind(mpKH$quality$Z[[ref]][[test]][, -1], 
-                mpKH$preservation$Z[[ref]][[test]][, -1]);
-statslogp  = cbind(mpKH$quality$log.pBonf[[ref]][[test]][, -1], 
-                   mpKH$preservation$log.pBonf[[ref]][[test]][, -1]);
-
-print(cbind(statsObs[, c("medianRank.pres", "medianRank.qual")], 
-            signif(statsZ[, c("Zsummary.pres", "Zsummary.qual")], 2), 
-            signif(statslogp[, c("log.p.Bonfsummary.pres", "log.p.Bonfsummary.qual")], 3)))
-
-
-
-plotData = cbind(mpKH$preservation$observed[[ref]][[test]][, 2], 
-                 mpKH$preservation$Z[[ref]][[test]][, 2], 
-                 - mpKH$preservation$log.pBonf[[ref]][[test]][, 2])
-
-
-modColors = rownames(mpKH$preservation$observed[[ref]][[test]])
-moduleSizes = mpKH$preservation$Z[[ref]][[test]][, 1];
-
-
-text = modColors[plotMods]
-
-mains = c("Preservation Median rank \nKang vs HNP", 
-          "Preservation Zsummary \nKang vs HNP", 
-          "Preservation -log10 Bonfp.val \nKang vs HNP")
-
-
-pdf(file = "KangvsHNP-modulePreservation-Zsummary-medianRank.pdf", wi = 15, h = 5)
-
-
-par(mfrow = c(1, 3))
-par(mar = c(4.5, 6, 2.5, 1))
-for (p in 1:3)
-{min = min(refplotData[plotMods, p], na.rm = TRUE);
-max = max(refplotData[plotMods, p], na.rm = TRUE);
-# Adjust ploting ranges appropriately
-if (p == 2 | p == 3)
-{
-  if (min > -max/10) min = -max/10
-  ylim = c(min - 0.1 * (max-min), max + 0.1 * (max-min))
-}
-else
-  ylim = c(max + 0.1 * (max-min), min - 0.1 * (max-min))
-
-plot(moduleSizes[plotMods], plotData[plotMods, p], col = 1, bg = modColors[plotMods], pch = 21, 
-     main = mains[p], 
-     cex = 2.4, 
-     ylab = mains[p], xlab = "Module size", log = "x", 
-     ylim = ylim, 
-     xlim = c(10, 2000), cex.lab = 1.2, cex.axis = 1.2, cex.main  = 1.4)
-
-labelPoints(moduleSizes[plotMods], plotData[plotMods, p], text, cex = 0.7, offs = 0.08)
-
-# For Zsummary, add threshold lines
-if (p == 2)
-{
-  abline(h = 0)
-  abline(h = 2, col = "blue", lty = 2)
-  abline(h = 10, col = "darkgreen", lty = 2)
-}
-
-if (p == 3)
-{
-  abline(h = 0, col = 1)
-  abline(h = -log10(0.05), col = "blue", lty = 2)
-  abline(h = -log10(0.01), col = "darkgreen", lty = 2)
-}
-}
-# If plotting into a file, close it
-dev.off();
-
-
-
-#####################################################################
-# nStatistics of Module Preservation
-#
-#
-#
-#####################################################################
-
-
-Prescomp  = data.frame(row.names = modColors, 
-                       KangvsMillerZ =  mp$preservation$Z[[ref]][[test]][, 2], 
-                       KangvsMillerlogp =  -mp$preservation$log.pBonf[[ref]][[test]][, 2], 
-                       KangvsHNPZ = mpKH$preservation$Z[[ref]][[test]][, 2], 
-                       KangvsHNPlogp =  -mpKH$preservation$log.pBonf[[ref]][[test]][, 2])
-
-Prescomp$Ratio = (Prescomp[, 1]/Prescomp[, 2])
-
-write.table(Prescomp, file = "../Output/Modulepreservation/Preservationscores.csv", sep = ", ")
-
-
-MOI = modColors[which(Prescomp$KangvsMillerlogp > -log10(0.01) &
-                        Prescomp$KangvsHNPlogp < -log10(0.05))]
-
-MOI = MOI[!MOI%in%c("gold", "grey")]
-
-cat("modules not preserved in HNP dataset:\n", MOI, "\n")
-
-consMOI = modColors[which(Prescomp$KangvsMillerlogp > -log10(0.05)&
-                            Prescomp$KangvsHNPlogp > -log10(0.05))]
-
-consMOI = consMOI[!consMOI%in%c("gold", "grey")]
-cat("modules preserved in HNP dataset:\n", consMOI, "\n")
-
-ucMOI = modColors[!modColors %in% c(MOI, consMOI)]
-
-ucMOI = ucMOI[!ucMOI%in%c("gold", "grey")]
-
-cat("modules not picked in any dataset:\n", ucMOI, "\n") 
-
-
-MEs = net2$MEs
-
-
-pdf(file = "ModMEs_notPreserved.pdf", wi = 20, he = 8)
-par(mfrow = c(1, 2), mar = c(4.5, 5, 4, 10))
-
-limit = max(abs(MEs[, paste0("ME", MOI)]))*2
-
-plot(0, 0, 
-     xlim = c(min(sampleKey$Stage), max(sampleKey$Stage)), 
-     ylim = c(-limit, limit), 
-     xlab =  "Stage", 
-     ylab = "Module Eigengene, norm to min", 
-     main = "non-preserved Modules", 
-     type = "n", 
-     cex = 1.5)
-legend(x = 8.5, y = 0.2, legend = MOI, pch = 16, col = MOI, bty = "n", xpd = T)
-for (mod in MOI){
-  set = MEs[, paste0("ME", mod)]
-  set2 = spline(set~sampleKey$Stage, n = 100)
-  set = set2$y-set2$y[1]
-  lines(set2$x, set , col = mod, lwd = 3)
-}
-
-
-limit = max(abs(MEs[, paste0("ME", MOI)]))*2
-
-plot(0, 0, 
-     xlim = c(min(sampleKey$Stage), max(sampleKey$Stage)), 
-     ylim = c(-limit, limit), 
-     xlab =  "Stage", 
-     ylab = "Module Eigengene", 
-     main = "non-preserved Modules", 
-     type = "n", 
-     cex = 1.5)
-legend(x = 8.5, y = 0.2, legend = MOI, pch = 16, col = MOI, bty = "n", xpd = T)
-for (mod in MOI){
-  set = MEs[, paste0("ME", mod)]
-  set2 = spline(set~sampleKey$Stage, n = 100)
-  lines(set2$x, set2$y , col = mod, lwd = 3)
-}
-
-dev.off()
-
-npMOIOgenes = KangAnnotnet2[net2$colors %in% MOI, ]
-
-npMOIOgenes.BKGD = KangAnnotnet2[net2$colors %in% c(MOI, consMOI), ]
-
-write.table(npMOIOgenes, 
-            file = paste(home, args[2], "Genelists/MP_not_cons_mods.csv", sep = "/"), 
-            sep = ", ", row.names = F)
-
-write.table(npMOIOgenes.BKGD, 
-            file = paste(home, args[2], "Genelists/MP_not_cons_modsBKGD.csv", sep = "/"), 
-            sep = ", ", row.names = F)
-
-
-#save.image("ModulePreservation.RData")
-
-#########################################################################
-# Identifiy genes that have a different module membership
-########################################################################
-
-
-# select genes of conserved module
-
-
-kMEBinder =  list()
-
-MEKang = moduleEigengenes(KangExprt, multiColor[[1]])$eigengenes
-MEMiller = moduleEigengenes(MillerExprt, multiColor[[1]])$eigengenes
-MEHNP = moduleEigengenes(HNPExprt, multiColor[[1]])$eigengenes
-
-
-for (module in consMOI) {
-  colindex = multiColor[[1]] == module
-  Memod = paste0("ME", module)
-  Kangset = KangExprt[, colindex]
-  Millerset = MillerExprt[, colindex]
-  HNPset = HNPExprt[, colindex]
-  kMEBinder[[module]] = data.frame(
-    kMEKang = apply(Kangset, 2, function(x){cor(x, MEKang[, Memod], method = "spearman")}), 
-    kMEMiller = apply(Millerset, 2, function(x){cor(x, MEMiller[, Memod], method = "spearman")}), 
-    kMEHNP = apply(HNPset, 2, function(x){cor(x, MEHNP[, Memod], method = "spearman")}))
-}
-
-require(scatterplot3d)
-
-pdf("kMEplots.pdf", 20, 20)
-
-par(mfrow = c(ceiling(sqrt(length(consMOI))), ceiling(sqrt(length(consMOI)))), mar = c(3, 3, 3, 3))
-
-for (module in consMOI){
-  
-  a = scatterplot3d(kMEBinder[[module]], color = "gray", pch = 21, 
-                    type = "h", lty.hplot = 2, bg = module, 
-                    xlim = c(-1, 1), ylim = c(-1, 1), zlim = c(-1, 1), 
-                    angle = 210, main = module, cex.axis = 1.2)
-  
-  a.coords <- a$xyz.convert(kMEBinder[[module]])
-  labels = KangAnnot$SYMBOL[match(rownames(kMEBinder[[module]]), KangAnnot$ENTREZ_ID)]
-  text(a.coords$x, a.coords$y, labels = labels, pos = 4, cex = 0.5)
-}
-
-dev.off()
-
-
-pdf("kMEdetails.pdf", 15, 8)
-par(mfrow = c(2, 4), mar = c(5, 5, 8, 5), oma = c(1, 1, 5, 3))
-
-
-#plot plots with critical genes named and generate results list  
-
-module = "salmon"
-
-for (module in consMOI){
-  
-  set2use = kMEBinder[[module]]
-  refMean = mean(set2use$kMEKang)
-  refSD = sd(set2use$kMEKang)
-  set2use$SYMBOL = KangAnnot$SYMBOL[match(rownames(set2use), KangAnnot$ENTREZ_ID)] 
-  set2use$ZkMEKang = (set2use$kMEKang-refMean)/refSD
-  set2use$ZkMEMiller = (set2use$kMEMiller-refMean)/refSD
-  set2use$ZkMEHNP = (set2use$kMEHNP-refMean)/refSD
-  set2use$pkMEKang = p.adjust(2*(1-pnorm(abs(set2use$ZkMEKang))), n = nrow(set2use))
-  set2use$pkMEMiller = p.adjust(2*(1-pnorm(abs(set2use$ZkMEMiller))), n = nrow(set2use))
-  set2use$pkMEHNP = p.adjust(2*(1-pnorm(abs(set2use$ZkMEHNP))), n = nrow(set2use))
-  
-  set2use$kMEcrit =  set2use$pkMEMiller>0.1&
-    set2use$pkMEHNP<0.05
-  
-  set2use$kMEbckgrd = set2use$pkMEMiller>0.1 |
-    set2use$pkMEHNP>0.1
-  
-  a = scatterplot3d(set2use[, 1:3], color = "gray", pch = 21, 
-                    type = "h", lty.hplot = 2, bg = module, 
-                    mar = c(5, 5, 8, 7), 
-                    xlim = c(-1, 1), ylim = c(-1, 1), zlim = c(-1, 1), 
-                    angle = 210, main = "Module Membership")
-  a.coords <- a$xyz.convert(set2use[, 1:3])
-  labels = set2use$SYMBOL
-  labels[!set2use$kMEcrit] = ""
-  
-  text(a.coords$x, a.coords$y, labels = labels, pos = 4, cex = 0.5)
-  text(0, 6, paste("kMEs", module, "module"), xpd = T, cex = 2, font = 2)
-  
-  for (col in 1:3)
-    hist(set2use[, col], breaks = 10, main = colnames(set2use)[col], xlim = c(-1, 1), col = module, 
-         xlab = "kME score")
-  kMEBinder[[module]] = set2use 
-}
-
-dev.off()
-
-
-
-DkME.results = data.frame()
-
-
-for(module in consMOI){
-  set2use = kMEBinder[[module]]
-  set2use$ENTREZ = rownames(set2use)
-  res = set2use[set2use$kMEcrit == T, ]
-  res$Module = rep(module, nrow(res))
-  DkME.results = rbind(DkME.results, res)
-}
-
-
-DkME.results = DkME.results[, c(4, 13, 14, 1:3, 5:10)]
-
-cat("non conserved genes : ", nrow(DkME.results), "\n", 
-    "out of" , sum(unlist(multiColor) %in% consMOI), "genes in conserved modules\n")
-
-cat(paste(unique(DkME.results$Module), tapply(DkME.results$ENTREZ, DkME.results$Module, length), "\n"))
-
-
-summarytab = data.frame(module = unique(DkME.results$Module))
-summarytab$Genes = sapply(summarytab$module, function(x){sum(unlist(multiColor) == x)})    
-summarytab$notPreGenes = as.vector(tapply(DkME.results$ENTREZ, DkME.results$Module, length))
-summarytab$ratio = summarytab$notPreGenes/summarytab$Genes
-
-write.table(summarytab, file = paste(home, args[2], "Modulepreservation/Summary.csv", sep = "/"), sep = ", ", row.names = F)
-
-write.table(DkME.results, 
-            file = paste(home, args[2], "Genelists", "DkME_targets.csv", sep = "/"), 
-            sep = ", ", row.names = F)
-
-DkME.bckgrd = data.frame()
-
-
-for(module in consMOI){
-  set2use = kMEBinder[[module]]
-  set2use$ENTREZ = rownames(set2use)
-  res = set2use[set2use$kMEbckgrd == T, ]
-  res$Module = rep(module, nrow(res))
-  DkME.bckgrd = rbind(DkME.bckgrd, res)
-}
-
-DkME.bckgrd = DkME.bckgrd[, c(4, 13, 12, 14, 1:3, 5:10)]
-
-write.table(DkME.bckgrd, 
-            file = paste(home, args[2], "Genelists", "DkME_BKGD.csv", sep = "/"), 
-            sep = ", ", row.names = F)  
-
-save.image("ModulePreservation.RData")
-
-
-
-
