@@ -1,7 +1,9 @@
 # Damon Polioudakis
 # 2016-07-21
-# Run DGE for TFs identified by Andreas as enriched for targets sites in
-# neurogenesis modules from Kang data
+# Normalize Luis' bulk RNAseq from experiments for ATAC work
+
+### TODO
+# Add bootstrapping regression for regressing out covariates
 
 ################################################################################
 
@@ -12,6 +14,8 @@ require(ggplot2)
 require(reshape2)
 require(xlsx)
 require(cqn)
+require(WGCNA)
+# require(boot)
 
 ### Load data and assign variables
 
@@ -48,6 +52,7 @@ theme_update(plot.title = element_text(size = 16))
 pres = apply(vzcpExDatDF > 5, 1, sum) 
 idx = which(pres > 0.4*dim(vzcpExDatDF)[2]) ## exp > 10 in 80% of samples
 vzcpFtExDatDF = vzcpExDatDF[idx, ]
+# vzcpFtExDatDF <- vzcpExDatDF
 
 
 ## Graph data pre-normalization
@@ -251,5 +256,76 @@ dev.off()
 ################################################################################
 
 save(vzcpCqnDatDF, topPCdatSeq, file = "../analysis/Expression_CQN_FtG5P4_Luis_RNAseq_VZCP.RData")
+# save(vzcpCqnDatDF, file = "../analysis/Expression_CQN_Luis_RNAseq_VZCP.RData")
 save(topPCdatSeq, file = "../analysis/SeqPC_Luis_RNAseq_VZCP.RData")
+
+################################################################################
+
+### Regress out covariates
+
+covDF <- data.frame(metDatDF[ ,c("ExpCondition", "RIN.y", "X260.230"
+      , "X260.280", "ExtractionDate.y")], topPCdatSeq)
+covDF$ExpCondition <- as.numeric(covDF$ExpCondition)
+covDF$ExtractionDate.y <- as.numeric(covDF$ExtractionDate.y)
+
+# Regress out confounding variables
+RegressCovariates <- function (exM, covDF) {
+  X = model.matrix(~ ., data = covDF)
+  Y = exM
+  beta = (solve(t(X)%*%X)%*%t(X))%*%t(Y)
+  b = as.data.frame(t(beta))
+  to_regress = (as.matrix(X[,3:11]) %*% (as.matrix(beta[3:11,])))
+  exRegCovM = exM - t(to_regress)
+  return(exRegCovM)
+}
+vzcpNmExDF <- RegressCovariates(vzcpCqnDatDF, covDF)
+quantile(vzcpCqnDatDF, c(0,0.025,0.25,0.5,0.75,0.975,1))
+quantile(vzcpNmExDF, c(0,0.025,0.25,0.5,0.75,0.975,1))
+save(vzcpNmExDF, file = "../analysis/Expression_CQN_RgCv_Luis_RNAseq_VZCP.RData")
+
+
+## Bootstrap regression
+# 
+# covDF <- data.frame(metDatDF[ ,c("ExpCondition", "RIN.y", "X260.230"
+#   , "X260.280", "ExtractionDate.y")], topPCdatSeq)
+# covDF$ExpCondition <- as.numeric(covDF$ExpCondition)
+# covDF$ExtractionDate.y <- as.numeric(covDF$ExtractionDate.y)
+# 
+# # Factors must be coded as numeric for bootstrap
+# RegressCovariatesBootstrap <- function (exM, covDF) {
+#   # 1) lme using covariates on unnormalized data
+#   options(stringsAsFactors=FALSE)
+#   boot <- FALSE
+#   numboot <- 10
+#   bs <- function(formula, data, indices) {
+#     d <- data[indices,] # allows bootstrap function to select samples
+#     fit <- lm(formula, data=d)
+#     return(coef(fit))
+#   }
+#   exBootRegM <- matrix(NA, nrow = nrow(exM), ncol = ncol(exM))
+#   rownames(exBootRegM) <- rownames(exM)
+#   colnames(exBootRegM) <- colnames(exM)
+#   # ncol(covDF)+1 when condition has 2 levels
+#   coefmat <- matrix(NA, nrow = nrow(exM), ncol = ncol(covDF) + 1)
+#   set.seed(8675309)
+#   for (i in 1:nrow(exM)) {
+#     if (i%%1000 == 0) {print(i)}
+#     thisexp <- as.numeric(exM[i, ])
+#     #       bs.results <- boot(data = data.frame(thisexp, covDF), statistic = bs,
+#     #         R = numboot, formula = thisexp~. + age + sex + PMI)
+#     bs.results <- boot(data = data.frame(thisexp, covDF), statistic = bs,
+#       R = numboot, formula = thisexp~ExpCondition+RIN.y+X260.230+X260.280+ExtractionDate.y+Seq.PC1+Seq.PC2+Seq.PC3+Seq.PC4+Seq.PC5)
+#     ## get the median - we can sometimes get NA values here... so let's exclude
+#     ## these - old code #bs.stats <- apply(bs.results$t,2,median) 
+#     bs.stats <- rep(NA, ncol(bs.results$t)) ##ncol is 3 here (thisexp, construct and extracted)
+#     for (n in 1:ncol(bs.results$t)) {
+#       bs.stats[n] <- median(na.omit(bs.results$t[ ,n]))
+#     }
+#     coefmat[i,] <- bs.stats
+#     exBootRegM[i,] <- thisexp - bs.stats[3]*covDF[ ,2] - bs.stats[4]*covDF[ ,3] - bs.stats[5]*covDF[ ,4] - bs.stats[6]*covDF[ ,5] - bs.stats[7]*covDF[ ,6] - bs.stats[8]*covDF[ ,7] - bs.stats[9]*covDF[ ,8] - bs.stats[10]*covDF[ ,9] - bs.stats[11]*covDF[ ,10]
+#     # cat('Done for Gene',i,'\n')
+#   }
+# }
+# 
+
 
